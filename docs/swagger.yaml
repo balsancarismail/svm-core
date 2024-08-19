@@ -1,0 +1,530 @@
+basePath: /
+definitions:
+  api_models.CreateUserRequest:
+    properties:
+      email:
+        type: string
+      homeAddress:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+      shareAddress:
+        type: boolean
+    type: object
+  api_models.FriendRequest:
+    properties:
+      friend_id:
+        type: integer
+      user_id:
+        type: integer
+    type: object
+  api_models.FriendResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  api_models.UpdateUserRequest:
+    properties:
+      homeAddress:
+        type: string
+      name:
+        type: string
+      shareAddress:
+        type: boolean
+    type: object
+  api_models.UserLocationRequest:
+    properties:
+      latitude:
+        type: number
+      longitude:
+        type: number
+      user_id:
+        type: integer
+    type: object
+  api_models.UserLocationResponse:
+    properties:
+      id:
+        type: integer
+      latitude:
+        type: number
+      longitude:
+        type: number
+    type: object
+  api_models.UserResponse:
+    properties:
+      email:
+        type: string
+      friends:
+        items:
+          $ref: '#/definitions/api_models.FriendResponse'
+        type: array
+      id:
+        type: integer
+      locations:
+        items:
+          $ref: '#/definitions/api_models.UserLocationResponse'
+        type: array
+      name:
+        type: string
+    type: object
+  db_models.Type:
+    enum:
+    - Wish
+    - NotGood
+    - Good
+    type: string
+    x-enum-varnames:
+    - Wish
+    - NotGood
+    - Good
+  db_models.User:
+    properties:
+      email:
+        type: string
+      friends:
+        items:
+          $ref: '#/definitions/db_models.User'
+        type: array
+      homeAddress:
+        type: string
+      locations:
+        items:
+          $ref: '#/definitions/db_models.UserLocation'
+        type: array
+      name:
+        type: string
+      passwordHash:
+        type: string
+      shareAddress:
+        type: boolean
+    type: object
+  db_models.UserLocation:
+    properties:
+      latitude:
+        type: number
+      longitude:
+        type: number
+      type:
+        $ref: '#/definitions/db_models.Type'
+      user:
+        $ref: '#/definitions/db_models.User'
+      user_id:
+        type: integer
+    type: object
+  handlers.LoginRequest:
+    properties:
+      email:
+        type: string
+      lat:
+        description: Kullanıcının enlem bilgisi
+        type: number
+      lng:
+        description: Kullanıcının boylam bilgisi
+        type: number
+      password:
+        type: string
+    type: object
+  handlers.LoginResponse:
+    properties:
+      access_token:
+        type: string
+      refresh_token:
+        type: string
+      user:
+        $ref: '#/definitions/handlers.UserResponse'
+    type: object
+  handlers.LogoutRequest:
+    properties:
+      refresh_token:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  handlers.LogoutResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  handlers.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  handlers.RefreshTokenResponse:
+    properties:
+      access_token:
+        type: string
+    type: object
+  handlers.UserResponse:
+    properties:
+      email:
+        type: string
+      friends:
+        items:
+          type: string
+        type: array
+      home_address:
+        type: string
+      id:
+        type: integer
+      locations:
+        items: {}
+        type: array
+      name:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: This is a sample server for MyApp.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://myapp.com/terms/
+  title: MyApp API
+  version: "1.0"
+paths:
+  /api/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate user and return access and refresh tokens
+      parameters:
+      - description: Login credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.LoginResponse'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "401":
+          description: Invalid email or password
+          schema:
+            type: string
+      summary: User login
+      tags:
+      - auth
+  /api/logout:
+    post:
+      consumes:
+      - application/json
+      description: Invalidate user tokens and close WebSocket session
+      parameters:
+      - description: Logout request data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.LogoutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.LogoutResponse'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "401":
+          description: Invalid or expired refresh token
+          schema:
+            type: string
+      summary: User logout
+      tags:
+      - auth
+  /api/online-users:
+    get:
+      description: Retrieve a list of currently online users
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get online users
+      tags:
+      - auth
+  /api/refresh-token:
+    post:
+      consumes:
+      - application/json
+      description: Generate a new access token using a valid refresh token
+      parameters:
+      - description: Refresh token request data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.RefreshTokenResponse'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "401":
+          description: Invalid or expired refresh token
+          schema:
+            type: string
+      summary: Refresh access token
+      tags:
+      - auth
+  /api/users:
+    get:
+      description: Get a list of users with their friends
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - description: Number of users per page
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/api_models.UserResponse'
+            type: array
+        "500":
+          description: Failed to fetch users
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: List users
+      tags:
+      - users
+    post:
+      consumes:
+      - application/json
+      description: Create a new user with the given details
+      parameters:
+      - description: User data
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/api_models.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/api_models.UserResponse'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "500":
+          description: Failed to create user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Create a new user
+      tags:
+      - users
+  /api/users/{id}:
+    delete:
+      description: Delete a user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: User not found
+          schema:
+            type: string
+        "500":
+          description: Failed to delete user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Delete a user
+      tags:
+      - users
+    get:
+      description: Get details of a specific user by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api_models.UserResponse'
+        "404":
+          description: User not found
+          schema:
+            type: string
+        "500":
+          description: Failed to fetch user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Get a user by ID
+      tags:
+      - users
+    put:
+      consumes:
+      - application/json
+      description: Update user details by ID, excluding email and password
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated user data
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/api_models.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api_models.UserResponse'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "404":
+          description: User not found
+          schema:
+            type: string
+        "500":
+          description: Failed to update user
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Update an existing user
+      tags:
+      - users
+  /api/users/friends:
+    post:
+      consumes:
+      - application/json
+      description: Create a friendship between two users
+      parameters:
+      - description: Friend request data
+        in: body
+        name: friend
+        required: true
+        schema:
+          $ref: '#/definitions/api_models.FriendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Friend added successfully
+          schema:
+            type: string
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "500":
+          description: Failed to add friend
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Add a friend
+      tags:
+      - users
+  /api/users/locations:
+    post:
+      consumes:
+      - application/json
+      description: Add a location for a user
+      parameters:
+      - description: Location data
+        in: body
+        name: location
+        required: true
+        schema:
+          $ref: '#/definitions/api_models.UserLocationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/db_models.UserLocation'
+        "400":
+          description: Invalid request payload
+          schema:
+            type: string
+        "500":
+          description: Failed to add location
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Add a user location
+      tags:
+      - users
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
