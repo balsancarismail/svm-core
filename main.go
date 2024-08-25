@@ -83,12 +83,12 @@ func main() {
 	api.HandleFunc("/refresh-token", authhandlers.RefreshToken(db, tokenStore)).Methods("POST")
 	api.HandleFunc("/logout", authhandlers.Logout(tokenStore)).Methods("POST")
 	api.HandleFunc("/online-users", authhandlers.GetOnlineUsers(tokenStore)).Methods("GET")
+	api.HandleFunc("/register", user.CreateUser(db)).Methods("POST")
 
 	users := api.PathPrefix("/users").Subrouter()
 	users.Use(middleware.JWTAuthentication)
 
 	// Protected user operations under /api
-	users.HandleFunc("", user.CreateUser(db)).Methods("POST")
 	users.HandleFunc("/{id}", user.UpdateUser(db)).Methods("PUT")
 	users.HandleFunc("", user.ListUsers(db)).Methods("GET")
 	users.HandleFunc("/{id}", user.DeleteUser(db)).Methods("DELETE")
@@ -100,20 +100,12 @@ func main() {
 
 	// CORS middleware'i ekleyin
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"www.ismailsancar.com"},
+		AllowedOrigins:   []string{"www.ismailsancar.com", "ismailsancar.com"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowCredentials: true,
 	}).Handler(router)
 
-	/*// SSL Sertifikası ve Anahtar Dosyalarının yolları
-	certFile := "../svm-ui/192.168.1.2.pem"    // Örneğin: "192.168.1.2.pem"
-	keyFile := "../svm-ui/192.168.1.2-key.pem" // Örneğin: "192.168.1.2-key.pem"
-
-
-	err = http.ListenAndServeTLS(":8080", certFile, keyFile, corsHandler)*/
-
-	// start the server
 	err = http.ListenAndServe(":8080", corsHandler)
 
 	if err != nil {
