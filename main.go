@@ -2,17 +2,20 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/mux"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/olahol/melody"
 	"github.com/rs/cors"
 	httpSwagger "github.com/swaggo/http-swagger"
-	"log"
-	"net/http"
 	authhandlers "svm/api/auth"
 	"svm/api/user"
 	authToken "svm/auth/token"
-	_ "svm/docs" // Swagger dokümantasyonunu içe aktar
-	"svm/middleware"
+	_ "svm/docs" // Swagger documentation
+	smvmmidlleware "svm/middleware"
 	"svm/migrations"
 	"svm/models/db_models"
 )
@@ -36,86 +39,89 @@ import (
 // @in header
 // @name Authorization
 func main() {
-
 	db, err := migrations.CreateDb()
 	if err != nil {
-		return
+		log.Fatalf("Failed to create database connection: %v", err)
 	}
 
 	tokenStore := authToken.NewTokenStore("localhost:6379")
-
-	// Melody instance'ını oluşturun
 	m := melody.New()
 
-	// WebSocket olaylarını ele alacak işlevleri ayarlayın
+	// Melody WebSocket handlers
 	m.HandleConnect(handleWsCon())
 	m.HandleDisconnect(handleWsDisc())
 	m.HandleMessage(func(s *melody.Session, msg []byte) {
-		// Tüm kullanıcılara mesajı yayınlama
-		user_id := s.Request.URL.Query().Get("user_id")
+		userID := s.Request.URL.Query().Get("user_id")
 
-		//Fecth user from db and preload friends
 		var user db_models.User
-		db.Preload("Friends").First(&user, user_id)
+		db.Preload("Friends").First(&user, userID)
 
-		//Send message to all friends
 		for _, friend := range user.Friends {
 			if session, ok := authhandlers.UserSessions[fmt.Sprintf("%d", friend.ID)]; ok {
 				session.Write(msg)
 			}
 		}
-
 	})
 
-	router := mux.NewRouter()
+	r := chi.NewRouter()
+
+	// Middlewares
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	// CORS middleware using rs/cors package
+	corsMiddleware := cors.New(cors.Options{
+		AllowedOrigins:   []string{"https://example.com"}, // Update with your allowed origins
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300, // Maximum value not to be preflighted
+	})
+
+	// Applying the CORS middleware to the router
+	r.Use(corsMiddleware.Handler)
+
+	// Public routes
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
+	r.Post("/api/login", authhandlers.Login(db, tokenStore, m))
+	r.Post("/api/refresh-token", authhandlers.RefreshToken(db, tokenStore))
+	r.Post("/api/logout", authhandlers.Logout(tokenStore))
+	r.Get("/api/online-users", authhandlers.GetOnlineUsers(tokenStore))
+	r.Post("/api/register", user.CreateUser(db))
+
+	// Protected routes
+	r.Group(func(r chi.Router) {
+		r.Use(smvmmidlleware.JWTAuthentication)
+		r.Route("/api/users", func(r chi.Router) {
+			r.Put("/{id}", user.UpdateUser(db))
+			r.Get("/", user.ListUsers(db))
+			r.Delete("/{id}", user.DeleteUser(db))
+			r.Get("/{id}", user.GetUserByID(db))
+			r.Post("/friends", user.AddFriend(db))
+			r.Post("/location", user.AddUserLocation(db))
+		})
+	})
 
 	// WebSocket endpoint
-	router.HandleFunc("/ws", handleWs(m))
+	r.Get("/ws", handleWSConnection(m))
 
-	// Swagger endpoint
-	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
+	log.Fatal(http.ListenAndServe(":8080", r))
+}
 
-	// authToken middleware
-	api := router.PathPrefix("/api").Subrouter()
-
-	// Public endpoints
-	api.HandleFunc("/login", authhandlers.Login(db, tokenStore, m)).Methods("POST")
-	api.HandleFunc("/refresh-token", authhandlers.RefreshToken(db, tokenStore)).Methods("POST")
-	api.HandleFunc("/logout", authhandlers.Logout(tokenStore)).Methods("POST")
-	api.HandleFunc("/online-users", authhandlers.GetOnlineUsers(tokenStore)).Methods("GET")
-	api.HandleFunc("/register", user.CreateUser(db)).Methods("POST")
-
-	users := api.PathPrefix("/users").Subrouter()
-	users.Use(middleware.JWTAuthentication)
-
-	// Protected user operations under /api
-	users.HandleFunc("/{id}", user.UpdateUser(db)).Methods("PUT")
-	users.HandleFunc("", user.ListUsers(db)).Methods("GET")
-	users.HandleFunc("/{id}", user.DeleteUser(db)).Methods("DELETE")
-	users.HandleFunc("/{id}", user.GetUserByID(db)).Methods("GET")
-	users.HandleFunc("/friends", user.AddFriend(db)).Methods("POST")
-	users.HandleFunc("/location", user.AddUserLocation(db)).Methods("POST")
-
-	//Online users endpoint
-
-	// CORS middleware'i ekleyin
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"www.ismailsancar.com", "ismailsancar.com"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type"},
-		AllowCredentials: true,
-	}).Handler(router)
-
-	err = http.ListenAndServe(":8080", corsHandler)
-
-	if err != nil {
-		log.Fatalf("ListenAndServeTLS: %v", err)
+func handleWSConnection(m *melody.Melody) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := m.HandleRequest(w, r); err != nil {
+			log.Println(err)
+		}
 	}
 }
 
 func handleWsCon() func(s *melody.Session) {
 	return func(s *melody.Session) {
-		// Oturum açan kullanıcının ID'sini oturumun sorgu parametrelerinden alıyoruz
 		userID := s.Request.URL.Query().Get("user_id")
 		if userID != "" {
 			authhandlers.UserSessions[userID] = s
@@ -125,21 +131,11 @@ func handleWsCon() func(s *melody.Session) {
 
 func handleWsDisc() func(s *melody.Session) {
 	return func(s *melody.Session) {
-		// Bağlantıyı kesen kullanıcıyı userSessions haritasından kaldırıyoruz
 		for userID, session := range authhandlers.UserSessions {
 			if session == s {
 				delete(authhandlers.UserSessions, userID)
 				break
 			}
-		}
-	}
-}
-
-func handleWs(m *melody.Melody) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := m.HandleRequest(w, r)
-		if err != nil {
-			log.Println(err)
 		}
 	}
 }
